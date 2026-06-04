@@ -1,0 +1,29 @@
+# matlab
+*.asv
+*.mat
+*.fig
+octave-workspace
+
+# generated experiment outputs
+outputs/
+RUN/**/*.md
+RUN/**/*.csv
+RUN/**/*.gif
+RUN/**/*.png
+RUN/**/*.pdf
+RUN/**/*.log
+RUN/**/*.pid
+*.pptx
+
+# local tooling and Python cache
+.superpowers/
+__pycache__/
+.DS_Store
+tmp/
+docs/superpowers/plans/
+docs/paper/els-cas-templates.zip
+docs/paper/els-cas-templates/manuscript.abs
+docs/paper/els-cas-templates/manuscript.aux
+docs/paper/els-cas-templates/manuscript.bbl
+docs/paper/els-cas-templates/manuscript.blg
+docs/paper/els-cas-templates/manuscript.log
