@@ -18,7 +18,7 @@ addpath(fullfile(projectRoot, 'RUN', 'GA'));
 setPath;
 
 if nargin < 1 || isempty(numberOfTrials)
-    numberOfTrials = 5;
+    numberOfTrials = 50;
 end
 if nargin < 2 || isempty(baseSeed)
     baseSeed = 1;
