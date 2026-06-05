@@ -6,7 +6,7 @@ function [reportPath, summary] = runMultisensorFilters_formation_4plus4_CommLeve
 %
 % This runner is intended for the communication-robustness figure/table. It
 % reuses the main fidFiaExistenceRefinement arm set and selects only:
-%   fixed weights, +structure-aware decoupled KLA, +FID-FIA existence refinement.
+%   Fixed Metropolis, Balanced mode, Cardinality-critical mode.
 
 close all; clc;
 scriptDir = fileparts(mfilename('fullpath'));
@@ -40,7 +40,7 @@ end
 levels = 0:3;
 levelLabels = {'none', 'bandwidth cap', 'tiered link loss', 'node outage'};
 methodDisplayNames = {'Fixed Metropolis', 'Balanced mode', 'Cardinality-critical mode'};
-armSelection = [1 3 4];
+armSelection = [1 4 5];
 
 summary = struct();
 summary.levels = levels;

@@ -12,7 +12,8 @@ function [reportPath, summary] = runMultisensorFilters_formation_4plus4_TieredLi
 %   2. generateMultisensorModel 生成滤波模型；
 %   3. generateMultisensorGroundTruth 生成 truth、measurements 和 sensor trajectories；
 %   4. applyCommunicationModel 注入 tiered packet-drop，得到 delivered measurements；
-%   5. buildArms 根据 finalArmMode 构造 Fixed / FID-FIA / Balanced / Cardinality-critical 等 arm；
+%   5. buildArms 根据 finalArmMode 构造 Fixed / PD / FID-FIA / Balanced /
+%      Cardinality-critical 等 paper-facing arms；
 %   6. 每个 arm 调 runDistributedLmbFilter；
 %   7. runDistributedLmbFilter 为每个 sensor 构造 local neighbor model；
 %   8. runParallelUpdateLmbFilter 在每个时刻调用 computeAdaptiveFusionWeights；
@@ -49,7 +50,7 @@ if nargin < 5 || isempty(writeReport)
     writeReport = true;
 end
 if nargin < 6 || isempty(finalArmMode)
-    finalArmMode = 'robustNIS';
+    finalArmMode = 'fidFiaExistenceRefinement';
 end
 if nargin < 7 || isempty(adaptiveFusionOverrides)
     adaptiveFusionOverrides = struct();
@@ -63,9 +64,8 @@ summary = struct();
 
 %% 1. 实验固定骨架：传感器数量、通信半径、融合拓扑和基础动态权重配置
 % 这里定义的是“所有 arm 共享”的默认设置。后面的 buildArms 会复制这份
-% baseAdaptiveFusionConfig，再按 arm 覆盖局部字段。注意：脚本里仍保留
-% 一些历史次线字段（如 freshness/NIS/history）用于旧报告兼容；当前
-% computeAdaptiveFusionWeights 主线已经不再消费这些次线字段。
+% baseAdaptiveFusionConfig，再按 arm 覆盖局部字段。少量历史字段保留为
+% adaptiveFusion 结构兼容项；clean 版 GA 入口只暴露论文正文使用的 arms。
 staggeredBirths = true;
 leaderSensor = 8;
 sensorCommRange = 150;
@@ -179,8 +179,9 @@ targetFormationConfig.targetBirthStates = buildTargetBirthStates();
 targetFormationConfig.targetFormationCount = size(targetFormationConfig.targetBirthStates, 2);
 
 %% 3. Arm 构造：把一个 finalArmMode 展开成一组可比较方法
-% 最终 paper 主线通常使用 finalArmMode='fidFiaExistenceRefinement'，
-% 对应 Fixed -> FID-FIA baseline -> Balanced -> Cardinality-critical。
+% 默认 paper 主线使用 finalArmMode='fidFiaExistenceRefinement'，
+% 对应 Fixed Metropolis -> PD-weighted GA -> FID-FIA-weighted GA ->
+% Balanced mode -> Cardinality-critical mode。
 % armSelection 只是调试入口，可临时只跑某几个 arm，不改变默认实验定义。
 arms = buildArms(baseAdaptiveFusionConfig, finalArmMode);
 arms = selectArms(arms, armSelection);
@@ -202,6 +203,7 @@ consPosSeries = [];
 consCardSeries = [];
 filterRuntimeSeconds = zeros(numberOfTrials, numArms);
 pDropBySensorTrials = zeros(numberOfTrials, numberOfSensors);
+samplingStats = struct();
 
 %% 5. Trial 主循环：每个 trial 生成一次共享场景，再让所有 arm 在同一场景上配对比较
 for trial = 1:numberOfTrials
@@ -336,16 +338,8 @@ if writeReport
         mkdir(reportDir);
     end
     timestamp = datestr(now, 'yyyymmdd_HHMMSS');
-    reportPrefix = '';
-    if any(strcmpi(finalArmMode, {'freshness', 'fresh', 'ctfidecay', 'ct_fi_decay', ...
-            'informationdecay', 'information_decay', 'multiratectfi', ...
-            'multi_rate_ct_fi', 'fiweightedga', 'fi_weighted_ga', ...
-            'fitracega', 'fi_trace_ga', 'cardinality', 'cardinalityconsensus', ...
-            'cardinality_consensus'}))
-        reportPrefix = 'Del_';
-    end
-    reportName = sprintf('%sGA_TIERED_LINK_ABLATION_N%d_SEED%d_%s.md', ...
-        reportPrefix, numberOfTrials, baseSeed, timestamp);
+    reportName = sprintf('GA_TIERED_LINK_ABLATION_N%d_SEED%d_%s.md', ...
+        numberOfTrials, baseSeed, timestamp);
     reportPath = fullfile(reportDir, reportName);
     writeAblationReport(reportPath, numberOfTrials, baseSeed, useFixedSeed, ...
         sensorCommRange, fusionWeighting, leaderSensor, commConfig, pDropBySensorTrials, ...
@@ -407,21 +401,22 @@ function arms = buildArms(baseAdaptiveFusionConfig, finalArmMode)
 % 当前 paper 主线：
 %   finalArmMode='fidFiaExistenceRefinement'
 %   -> Fixed Metropolis
-%   -> Cao-Zhao FID-FIA baseline
-%   -> Balanced mode (+structure-aware decoupled KLA)
-%   -> Cardinality-critical mode (+FID-FIA existence refinement)
+%   -> PD-weighted GA
+%   -> FID-FIA-weighted GA
+%   -> Balanced mode
+%   -> Cardinality-critical mode
 arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 5);
 
-% 默认前三个 arm 是旧消融骨架：fixed -> covariance -> link quality。
-% 某些 finalArmMode 会在 switch 里重写整组 arms，例如当前主线的
-% fidFiaExistenceRefinement 直接改成 4-arm paper-facing 顺序。
+% 默认 fallback 是因子消融骨架：fixed -> covariance -> link quality。
+% 当前主线 finalArmMode='fidFiaExistenceRefinement' 会直接改成
+% 5-arm paper-facing 顺序。
 cfg = baseAdaptiveFusionConfig;
 cfg.enabled = false;
 cfg.useDecoupledKla = false;
 cfg.useCovariance = false;
 cfg.useLinkQuality = false;
 cfg.useNIS = false;
-arms(1).name = 'fixed weights';
+arms(1).name = 'Fixed Metropolis';
 arms(1).adaptiveFusion = cfg;
 
 cfg = baseAdaptiveFusionConfig;
@@ -446,12 +441,13 @@ switch lower(finalArmMode)
     case {'fidfiaexistencerefinement', 'fid_fia_existence_refinement', ...
             'fid-fia-existence-refinement', 'caozhaoexistencerefinement', ...
             'cao_zhao_existence_refinement'}
-        % Paper 主实验 arm 顺序。
-        % 1. fixed weights：关闭 adaptiveFusion，保留 Metropolis 拓扑权重。
-        % 2. FID-FIA baseline：整个 posterior 用 scalar FID-FIA 权重融合。
-        % 3. Balanced：三因子 backbone + decoupled KLA + structure prior。
-        % 4. Cardinality-critical：在 Balanced 基础上，只给 existence 分支加 FID-FIA。
-        arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 4);
+        % Paper 主表 arm 顺序。
+        % 1. Fixed Metropolis：关闭 adaptiveFusion，保留 Metropolis 拓扑权重。
+        % 2. PD-weighted GA：检测概率式可靠性 direct baseline。
+        % 3. FID-FIA-weighted GA：整个 posterior 用 scalar FID-FIA 权重融合。
+        % 4. Balanced mode：三因子 backbone + decoupled KLA + structure prior。
+        % 5. Cardinality-critical：在 Balanced 基础上，只给 existence 分支加 FID-FIA。
+        arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 5);
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = false;
@@ -461,8 +457,23 @@ switch lower(finalArmMode)
         cfg.useLinkQuality = false;
         cfg.useNIS = false;
         cfg.useFidFiaExistence = false;
-        arms(1).name = 'fixed weights';
+        arms(1).name = 'Fixed Metropolis';
         arms(1).adaptiveFusion = cfg;
+
+        cfg = baseAdaptiveFusionConfig;
+        cfg.enabled = true;
+        cfg.method = 'pdWeightedGa';
+        cfg.useDecoupledKla = false;
+        cfg.useStructureAwareKla = false;
+        cfg.useCovariance = false;
+        cfg.useLinkQuality = false;
+        cfg.useExistenceConfidence = false;
+        cfg.useFreshness = false;
+        cfg.useHistory = false;
+        cfg.useNIS = false;
+        cfg.useFidFiaExistence = false;
+        arms(2).name = 'PD-weighted GA';
+        arms(2).adaptiveFusion = cfg;
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = true;
@@ -482,8 +493,8 @@ switch lower(finalArmMode)
         cfg.fidFiaExistencePower = 1.0;
         cfg.fidFiaQuadraturePoints = 3;
         cfg.fidFiaUseDetectionProbability = true;
-        arms(2).name = 'Cao-Zhao FID-FIA baseline';
-        arms(2).adaptiveFusion = cfg;
+        arms(3).name = 'FID-FIA-weighted GA';
+        arms(3).adaptiveFusion = cfg;
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = true;
@@ -519,8 +530,8 @@ switch lower(finalArmMode)
         if cfg.structureReliabilityPower <= 0
             cfg.structureReliabilityPower = 0.30;
         end
-        arms(3).name = '+structure-aware decoupled KLA';
-        arms(3).adaptiveFusion = cfg;
+        arms(4).name = 'Balanced mode';
+        arms(4).adaptiveFusion = cfg;
 
         % Cardinality-critical 的关键不是“替换 Balanced”，而是在 Balanced 的
         % existence branch 上叠加 FID-FIA。这里把 FID-FIA score floor 和
@@ -531,12 +542,10 @@ switch lower(finalArmMode)
         cfg.fidFiaExistenceMinScore = 0.0;
         cfg.existenceEmaAlpha = 0.0;
         cfg.existenceMinWeight = 0.0;
-        arms(4).name = '+FID-FIA existence refinement';
-        arms(4).adaptiveFusion = cfg;
-    case {'fidfia', 'fid_fia', 'fidfiabaseline', 'fid_fia_baseline', ...
-            'fisherfia', 'fisher_fia', 'informationgeometry', ...
-            'information_geometry', 'caozhao', 'cao_zhao'}
-        arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 3);
+        arms(5).name = 'Cardinality-critical mode';
+        arms(5).adaptiveFusion = cfg;
+    case {'factorablation', 'factor_ablation'}
+        arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 5);
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = false;
@@ -545,28 +554,34 @@ switch lower(finalArmMode)
         cfg.useCovariance = false;
         cfg.useLinkQuality = false;
         cfg.useNIS = false;
-        arms(1).name = 'fixed weights';
+        arms(1).name = 'Fixed Metropolis';
         arms(1).adaptiveFusion = cfg;
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = true;
-        cfg.method = 'fidFia';
+        cfg.method = 'factorized';
         cfg.useDecoupledKla = false;
-        cfg.useStructureAwareKla = false;
-        cfg.useCovariance = false;
+        cfg.useCovariance = true;
         cfg.useLinkQuality = false;
         cfg.useExistenceConfidence = false;
         cfg.useFreshness = false;
         cfg.useHistory = false;
         cfg.useNIS = false;
-        cfg.fidFiaUseEma = false;
-        cfg.fidFiaMinWeight = 0.0;
-        cfg.fidFiaUseExistenceWeight = true;
-        cfg.fidFiaExistencePower = 1.0;
-        cfg.fidFiaQuadraturePoints = 3;
-        cfg.fidFiaUseDetectionProbability = true;
-        arms(2).name = 'Cao-Zhao FID-FIA baseline';
+        arms(2).name = 'Covariance-only adaptive';
         arms(2).adaptiveFusion = cfg;
+
+        cfg = baseAdaptiveFusionConfig;
+        cfg.enabled = true;
+        cfg.method = 'factorized';
+        cfg.useDecoupledKla = false;
+        cfg.useCovariance = true;
+        cfg.useLinkQuality = true;
+        cfg.useExistenceConfidence = false;
+        cfg.useFreshness = false;
+        cfg.useHistory = false;
+        cfg.useNIS = false;
+        arms(3).name = 'Covariance-link adaptive';
+        arms(3).adaptiveFusion = cfg;
 
         cfg = baseAdaptiveFusionConfig;
         cfg.enabled = true;
@@ -601,204 +616,18 @@ switch lower(finalArmMode)
         if cfg.structureReliabilityPower <= 0
             cfg.structureReliabilityPower = 0.30;
         end
-        arms(3).name = '+structure-aware decoupled KLA';
-        arms(3).adaptiveFusion = cfg;
-    case {'freshness', 'fresh'}
-        % 历史次线入口：当前 computeAdaptiveFusionWeights 主线已不再消费
-        % freshness 分数。保留这个分支主要是为了旧报告/历史脚本可读。
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useFreshness = true;
-        arms(4).name = '+freshness';
-        arms(4).adaptiveFusion = cfg;
-        arms = arms(1:4);
-    case {'ctfidecay', 'ct_fi_decay', 'informationdecay', 'information_decay', ...
-            'multiratectfi', 'multi_rate_ct_fi'}
-        % 历史多速率/信息衰减入口。当前动态权重核心已清理 CT-FI decay，
-        % 不再把它作为 paper 主线动态权重因子。
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = true;
-        cfg.useCtFiDecay = false;
-        cfg.useNIS = false;
-        arms(4).name = '+freshness';
+        arms(4).name = 'Balanced mode';
         arms(4).adaptiveFusion = cfg;
 
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useCtFiDecay = true;
-        cfg.useNIS = false;
-        arms(5).name = '+CT-FI information decay';
-        arms(5).adaptiveFusion = cfg;
-    case {'fiweightedga', 'fi_weighted_ga', 'fitracega', 'fi_trace_ga', ...
-            'fisherweightedga', 'fisher_weighted_ga'}
-        arms = repmat(struct('name', '', 'adaptiveFusion', struct()), 1, 4);
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = false;
-        cfg.method = 'factorized';
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = false;
-        cfg.useLinkQuality = false;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        arms(1).name = 'fixed weights';
-        arms(1).adaptiveFusion = cfg;
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.method = 'pdWeightedGa';
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = false;
-        cfg.useLinkQuality = false;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        arms(2).name = 'PD-weighted GA';
-        arms(2).adaptiveFusion = cfg;
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.method = 'fiTraceGa';
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = false;
-        cfg.useLinkQuality = false;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        arms(3).name = 'FI-weighted GA';
-        arms(3).adaptiveFusion = cfg;
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.method = 'factorized';
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        arms(4).name = '+link quality';
-        arms(4).adaptiveFusion = cfg;
-    case {'cardinality', 'cardinalityconsensus', 'cardinality_consensus'}
-        % 历史 cardinality-consensus 尝试。当前核心函数已不再消费该分数。
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useCardinalityConsensus = true;
-        arms(4).name = '+cardinality consensus';
-        arms(4).adaptiveFusion = cfg;
-        arms = arms(1:4);
-    case {'existence', 'existenceconfidence', 'existence_confidence'}
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useExistenceConfidence = true;
-        arms(4).name = '+existence confidence';
-        arms(4).adaptiveFusion = cfg;
-        arms = arms(1:4);
-    case {'decoupled', 'decoupledkla', 'decoupled_kla'}
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useExistenceConfidence = true;
-        arms(4).name = '+existence confidence';
-        arms(4).adaptiveFusion = cfg;
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useExistenceConfidence = true;
-        cfg.useDecoupledKla = true;
-        arms(5).name = '+decoupled KLA';
-        arms(5).adaptiveFusion = cfg;
-    case {'structureaware', 'structure_aware', 'structure-aware', ...
-            'structureawaredecoupledkla', 'structure_aware_decoupled_kla', ...
-            'structure-aware-decoupled-kla'}
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useExistenceConfidence = true;
-        arms(4).name = '+existence confidence';
-        arms(4).adaptiveFusion = cfg;
-
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = false;
-        cfg.useExistenceConfidence = true;
-        cfg.useDecoupledKla = true;
-        cfg.useStructureAwareKla = true;
-        cfg.usePosteriorStructureConsistency = false;
-        if abs(cfg.existenceConfidenceMinScore - 0.6) < 1e-9
-            cfg.existenceConfidenceMinScore = 0.85;
-        end
-        if abs(cfg.existenceConfidencePower - 1.0) < 1e-9
-            cfg.existenceConfidencePower = 2.0;
-        end
-        if abs(cfg.spatialDecouplingStrength - 1.0) < 1e-9
-            cfg.spatialDecouplingStrength = 0.5;
-        end
-        if abs(cfg.existenceDecouplingStrength - 1.0) < 1e-9
-            cfg.existenceDecouplingStrength = 0.15;
-        end
-        if cfg.spatialStructureStrength <= 0
-            cfg.spatialStructureStrength = 0.45;
-        end
-        if cfg.existenceStructureStrength <= 0
-            cfg.existenceStructureStrength = 0.08;
-        end
-        if cfg.structureReliabilityPower <= 0
-            cfg.structureReliabilityPower = 0.30;
-        end
-        arms(5).name = '+structure-aware decoupled KLA';
+        cfg.useFidFiaExistence = true;
+        cfg.fidFiaExistenceStrength = 4.0;
+        cfg.fidFiaExistenceMinScore = 0.0;
+        cfg.existenceEmaAlpha = 0.0;
+        cfg.existenceMinWeight = 0.0;
+        arms(5).name = 'Cardinality-critical mode';
         arms(5).adaptiveFusion = cfg;
     otherwise
-        % 旧默认 robust-NIS 消融入口。保留是为了旧脚本兼容；当前 paper
-        % 主线请显式传 finalArmMode='fidFiaExistenceRefinement'。
-        cfg = baseAdaptiveFusionConfig;
-        cfg.enabled = true;
-        cfg.useDecoupledKla = false;
-        cfg.useCovariance = true;
-        cfg.useLinkQuality = true;
-        cfg.useFreshness = false;
-        cfg.useNIS = true;
-        cfg.robustNIS = true;
-        arms(4).name = '+robust NIS';
-        arms(4).adaptiveFusion = cfg;
-        arms = arms(1:4);
+        error('Unknown finalArmMode "%s". Use "fidFiaExistenceRefinement" or "factorAblation".', finalArmMode);
 end
 end
 

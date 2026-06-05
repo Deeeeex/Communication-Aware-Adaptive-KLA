@@ -109,10 +109,18 @@ finalArmMode = 'fidFiaExistenceRefinement'
 
 | Arm | 实验含义 |
 | --- | --- |
-| `fixed weights` | 关闭 adaptiveFusion，使用固定 Metropolis 拓扑权重。 |
-| `Cao-Zhao FID-FIA baseline` | 用 scalar FID-FIA score 直接生成 GA 权重。 |
-| `+structure-aware decoupled KLA` | Balanced mode：三因子 backbone + spatial/existence decoupling + structure prior。 |
-| `+FID-FIA existence refinement` | Cardinality-critical mode：在 Balanced 基础上，只给 existence branch 加 FID-FIA。 |
+| `Fixed Metropolis` | 关闭 adaptiveFusion，使用固定 Metropolis 拓扑权重。 |
+| `PD-weighted GA` | 用检测概率可靠性直接生成 GA 权重。 |
+| `FID-FIA-weighted GA` | 用 scalar FID-FIA score 直接生成 GA 权重。 |
+| `Balanced mode` | 三因子 backbone + spatial/existence decoupling + structure prior。 |
+| `Cardinality-critical mode` | 在 Balanced 基础上，只给 existence branch 加 FID-FIA。 |
+
+如果需要正文中的因子消融表，调用 `finalArmMode='factorAblation'`，顺序为：
+
+```text
+Fixed Metropolis -> Covariance-only adaptive -> Covariance-link adaptive ->
+Balanced mode -> Cardinality-critical mode
+```
 
 Cardinality-critical 的关键参数：
 

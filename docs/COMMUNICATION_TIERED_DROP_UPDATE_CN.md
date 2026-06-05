@@ -132,214 +132,82 @@ commConfig.pDropLevelCounts = [1, 4, 1, 2];
 
 ## 5. 当前实验脚本
 
-围绕这套通信配置，当前脚本更适合分成“主线脚本”和“次线脚本”两组来看。
-
-主线脚本：
+围绕这套通信配置，clean 版本只保留论文正文采用的 GA 主线脚本：
 
 - [RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m](../RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m)
-  `fixed -> +covariance -> +link quality -> +existence confidence -> +structure-aware decoupled KLA`
+  `Fixed Metropolis -> PD-weighted GA -> FID-FIA-weighted GA -> Balanced mode -> Cardinality-critical mode`
 - [RUN/GA/runMultisensorFilters_formation_4plus4_IdealCommCompare.m](../RUN/GA/runMultisensorFilters_formation_4plus4_IdealCommCompare.m)
-  ideal communication 下 `ordinary GA -> structure-aware decoupled KLA`
+  ideal communication 下复用同一组 5 个 paper-facing arms
+- [RUN/GA/runMultisensorFilters_formation_4plus4_CommLevelThreeMethodCompare.m](../RUN/GA/runMultisensorFilters_formation_4plus4_CommLevelThreeMethodCompare.m)
+  通信等级 sensitivity：`Fixed Metropolis -> Balanced mode -> Cardinality-critical mode`
 
-次线或附录脚本：
+NIS、history、freshness、association ambiguity、posterior-structure consistency 等历史尝试不再作为 clean 版本的可运行 GA 入口维护。
 
-- [RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkNISCompare.m](../RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkNISCompare.m)
-  `w/o NIS -> robust NIS -> NIS`
-- [RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkFreshnessCompare.m](../RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkFreshnessCompare.m)
-  `robust NIS baseline -> robust NIS + freshness`
-- [RUN/GA/runMultisensorFilters_formation_4plus4_HistoryCompare.m](../RUN/GA/runMultisensorFilters_formation_4plus4_HistoryCompare.m)
-  `w/o history -> history`
+## 6. Clean 版实验口径
 
-这些脚本共享同一组 tiered communication 口径，但当前论文或主文档更建议优先围绕第一组脚本组织叙事。
+本仓库不保留中间报告和论文源码，只保留可复现实验入口。GA 主实验默认使用
+论文正文表格的组织形式。
 
-## 6. 当前验证结论
+### 6.1 主表对比
 
-以下结果都来自 `5 trial`，并使用同一套分档通信配置。
-
-### 6.1 当前主线结论：四项组合是最稳的叙事
-
-主线报告：
-
-- [RUN/GA/GA_TIERED_LINK_ABLATION_20260322_001613.md](../RUN/GA/GA_TIERED_LINK_ABLATION_20260322_001613.md)
-- [RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md](../RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md)
-
-当前主线消融路径：
-
-```text
-fixed weights -> +covariance -> +link quality -> +existence confidence -> +structure-aware decoupled KLA
-```
-
-当前可直接引用的一组结果是：
-
-```text
-fixed weights:                  OSPA 2.624065, RMSE 2.702602, Card 0.878750
-+covariance:                    OSPA 2.211513, RMSE 2.410976, Card 0.589500
-+link quality:                  OSPA 1.877771, RMSE 1.800945, Card 0.245250
-+existence confidence:          OSPA 1.874840, RMSE 1.779820, Card 0.244500
-+structure-aware decoupled KLA: OSPA 1.862244, RMSE 1.749608, Card 0.244250
-```
-
-这条路径现在已经比旧的 “adaptive robust NIS” 叙事更适合做主线，因为它的每一步边际作用都更清楚。
-
-### 6.2 `covariance + link quality` 是主线骨架
-
-结论：
-
-- `covariance` 先把 fixed weights 明显拉开，说明 posterior quality 本身必须进权重
-- `link quality` 在 tiered-drop 条件下继续带来最大一档附加收益，说明通信异构性必须被显式建模
-- 这两项一起构成当前 adaptive weighting 的基础骨架
-
-### 6.3 `existence confidence` 是最有效的第三因子
-
-报告：
-
-- [RUN/GA/GA_TIERED_LINK_ABLATION_20260322_001613.md](../RUN/GA/GA_TIERED_LINK_ABLATION_20260322_001613.md)
-
-这次测试的是在 `协方差 + 链路质量` 基础上，再加入一个新的“存在性/基数置信度”因子。它不是看链路是否丢包，也不是看协方差大小，而是看各 Bernoulli existence probability 是否足够尖锐。
-
-推荐参数是：
+默认入口：
 
 ```matlab
-model.adaptiveFusion.useExistenceConfidence = true;
-model.adaptiveFusion.existenceConfidenceMinScore = 0.85;
-model.adaptiveFusion.existenceConfidencePower = 2.0;
-model.adaptiveFusion.useNIS = false;
+[reportPath, summary] = runMultisensorFilters_formation_4plus4_TieredLinkAblation( ...
+    numberOfTrials, baseSeed, true, struct(), writeReport, ...
+    'fidFiaExistenceRefinement');
 ```
 
-`5 trial` 结果：
+默认 arm 顺序：
 
-- `+link quality`: `OSPA 1.877771`, `RMSE 1.800945`, `Cardinality 0.245250`
-- `+existence confidence`: `OSPA 1.874840`, `RMSE 1.779820`, `Cardinality 0.244500`
+```text
+Fixed Metropolis -> PD-weighted GA -> FID-FIA-weighted GA ->
+Balanced mode -> Cardinality-critical mode
+```
 
-结论：
+### 6.2 因子消融
 
-- 这是目前第一个相对 `协方差 + 链路质量` baseline 稳定实现三项指标同时改善的新因子
-- 它比 `freshness` 更有效，也比 `robust NIS` 更适合放在主线第三个位置
-- 从论文表述上，它补充的是“存在性判决可信度”，与“状态精度”和“通信可靠性”形成互补
-
-### 6.4 当前最优：weak structure-aware decoupled KLA
-
-报告：
-
-- [RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md](../RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md)
-
-这轮是在 `协方差 + 链路质量 + existence confidence` 的基础上，进一步做一个很弱的 structure-aware decoupled KLA：
-
-- spatial 分支保留主要收益
-- existence 分支只做很轻的结构调制，避免破坏 cardinality
-- 结构先验同时参考局部子图重叠和固定分档丢包率
-- posterior-consistency 结构模式保留为实验开关，但当前 best 默认仍使用静态结构先验模式
-
-推荐参数是：
+如果需要论文正文中的 backbone/final-mode 因子消融，使用：
 
 ```matlab
-model.adaptiveFusion.useCovariance = true;
-model.adaptiveFusion.useLinkQuality = true;
-model.adaptiveFusion.useExistenceConfidence = true;
-model.adaptiveFusion.existenceConfidenceMinScore = 0.85;
-model.adaptiveFusion.existenceConfidencePower = 2.0;
-model.adaptiveFusion.useDecoupledKla = true;
-model.adaptiveFusion.useStructureAwareKla = true;
-model.adaptiveFusion.usePosteriorStructureConsistency = false;
-model.adaptiveFusion.spatialDecouplingStrength = 0.5;
-model.adaptiveFusion.existenceDecouplingStrength = 0.15;
-model.adaptiveFusion.spatialStructureStrength = 0.45;
-model.adaptiveFusion.existenceStructureStrength = 0.08;
-model.adaptiveFusion.structureReliabilityPower = 0.30;
-model.adaptiveFusion.useNIS = false;
+[reportPath, summary] = runMultisensorFilters_formation_4plus4_TieredLinkAblation( ...
+    numberOfTrials, baseSeed, true, struct(), writeReport, ...
+    'factorAblation');
 ```
 
-`5 trial` 结果：
-
-- `+link quality`: `OSPA 1.877771`, `RMSE 1.800945`, `Cardinality 0.245250`
-- `+structure-aware decoupled KLA`: `OSPA 1.862244`, `RMSE 1.749608`, `Cardinality 0.244250`
-
-结论：
-
-- 这是当前 tiered 通信配置下的最新 best
-- 相比 `+existence confidence` baseline，`OSPA`、`RMSE` 和 `Cardinality` 都继续下降
-- 当前有效配置的关键不是“强结构先验”，而是“在三因子 baseline 上叠加很弱的 structure-aware decoupling”
-- 这也意味着 structure-aware 更适合作为 refinement 来写，而不是单独写成拓扑权重主方法
-
-### 6.5 ideal communication 下的支持性证据
-
-报告：
-
-- [RUN/GA/GA_IDEAL_COMM_COMPARE_20260326_184508.md](../RUN/GA/GA_IDEAL_COMM_COMPARE_20260326_184508.md)
-
-结果：
+对应 arm 顺序：
 
 ```text
-ordinary GA -> structure-aware decoupled KLA
-OSPA consensus error: 1.706 -> 1.494
-Matched localization disagreement: 1.526 -> 1.290
-Cardinality dispersion: 0.161 -> 0.139
-Local E-OSPA:   1.950 -> 1.877
-Local RMSE:     1.442 -> 1.369
+Fixed Metropolis -> Covariance-only adaptive -> Covariance-link adaptive ->
+Balanced mode -> Cardinality-critical mode
 ```
 
-结论：
+### 6.3 Ideal Communication
 
-- 结构解耦层的收益不只是“补偿链路丢包”
-- 即使在 ideal communication 下，它对普通 GA 也仍有正向作用
-- 这条结果适合作为 supporting evidence，而不是替代 tiered main scenario
+Ideal communication 支撑实验不再维护单独的一套旧 arm，而是复用主表的
+5 个 paper-facing arms：
 
-### 6.6 次线与负结果：`robust NIS`、`freshness`、`history`
+```matlab
+[reportPath, summary] = runMultisensorFilters_formation_4plus4_IdealCommCompare( ...
+    numberOfTrials, baseSeed, true, writeReport);
+```
 
-`robust NIS` 报告：
+### 6.4 通信等级敏感性
 
-- [RUN/GA/GA_TIERED_LINK_NIS_COMPARE_20260321_193628.md](../RUN/GA/GA_TIERED_LINK_NIS_COMPARE_20260321_193628.md)
-
-结果：
+通信等级 sensitivity 只比较正文采用的三个 representative arms：
 
 ```text
-w/o NIS -> robust NIS -> NIS
-OSPA: 1.909267 -> 1.908967 -> 2.007700
-RMSE: 2.934317 -> 2.980071 -> 3.173222
-Card: 0.267000 -> 0.262250 -> 0.300500
+Fixed Metropolis -> Balanced mode -> Cardinality-critical mode
 ```
 
-结论：
+对应入口：
 
-- `robust NIS` 比 plain `NIS` 稳定
-- 但它与 `w/o NIS` 基本打平，不足以构成当前主线 headline
-
-`freshness` 报告：
-
-- [RUN/GA/Del_GA_TIERED_LINK_FRESHNESS_COMPARE_20260321_193131.md](../RUN/GA/Del_GA_TIERED_LINK_FRESHNESS_COMPARE_20260321_193131.md)
-
-结果：
-
-```text
-OSPA: 1.908967 -> 1.909680
-RMSE: 2.980071 -> 2.979829
-Card: 0.262250 -> 0.262500
+```matlab
+summaries = runMultisensorFilters_formation_4plus4_CommLevelThreeMethodCompare( ...
+    numberOfTrials, baseSeed, true, writeReports);
 ```
 
-结论：
-
-- `freshness` 在当前口径下几乎不起作用
-- 只适合保留成负结果或附录说明
-
-`history` 报告：
-
-- [RUN/GA/GA_HISTORY_COMPARE_20260309_113545.md](../RUN/GA/GA_HISTORY_COMPARE_20260309_113545.md)
-
-结果：
-
-```text
-w/o history -> history
-OSPA: 1.811 -> 1.814
-RMSE: 3.173 -> 3.158
-Card: 0.214 -> 0.215
-```
-
-结论：
-
-- `history` 只带来很弱而且带耦合的变化
-- 更适合作为“尝试过，但不进正文主线”的补充材料
-
-## 7. 推荐口径
+## 7. 推荐通信配置
 
 如果后续文档、实验或论文需要统一通信设置，建议优先使用分档异构口径：
 
@@ -363,7 +231,7 @@ commConfig.maxOutageNodes = 1;
 - 更容易解释实验现象
 - 更方便后续扩展到“档位个数变化”或“极差节点个数变化”的对比实验
 
-如果后续要在这套通信配置下给出当前最佳动态权重组合，建议优先采用：
+如果后续要在这套通信配置下手动构造 Balanced mode，建议优先采用：
 
 ```matlab
 model.adaptiveFusion.useCovariance = true;
@@ -382,10 +250,6 @@ model.adaptiveFusion.useNIS = false;
 model.adaptiveFusion.useHistory = false;
 ```
 
-对应主报告为：
-
-- [RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md](../RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md)
-
 这套组合当前对应的是：
 
 - `协方差`：状态精度
@@ -393,4 +257,13 @@ model.adaptiveFusion.useHistory = false;
 - `存在性置信度`：目标存在性/基数判决可信度
 - `弱结构先验解耦`：对 spatial 分支做主要 refinement，并只对 existence 分支做轻微调制
 
-如果需要写论文正文，建议把 `robust NIS`、`history`、`freshness` 统一挪到次线或附录，而不要再和这四项主线并列叙述。
+Cardinality-critical mode 在 Balanced mode 基础上只给 existence branch
+增加 FID-FIA refinement：
+
+```matlab
+model.adaptiveFusion.useFidFiaExistence = true;
+model.adaptiveFusion.fidFiaExistenceStrength = 4.0;
+model.adaptiveFusion.fidFiaExistenceMinScore = 0.0;
+model.adaptiveFusion.existenceEmaAlpha = 0.0;
+model.adaptiveFusion.existenceMinWeight = 0.0;
+```

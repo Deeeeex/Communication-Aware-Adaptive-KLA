@@ -18,10 +18,10 @@ out of version control.
 - Adaptive KLA weights for GA-LMB and compatible adaptive weights for AA-LMB.
 - Branch-decoupled spatial and existence weighting for KLA-style fusion.
 - Structure-aware priors derived from local topology and posterior consistency.
-- Baseline fusion modes for fixed weights, PD-weighted GA, FI/FID-FIA-inspired
+- Baseline fusion modes for Fixed Metropolis, PD-weighted GA, FID-FIA-inspired
   weighting, PU-LMB, GA-LMB, AA-LMB, IC-LMB, single-sensor LMB, and LMBM.
 - Experiment scripts for 4+4 sensor formations, tiered-link ablations, ideal
-  communication comparisons, NIS-related diagnostics, and AA validation.
+  communication comparisons, communication-level sensitivity, and AA validation.
 
 The main adaptive path is:
 
@@ -102,6 +102,13 @@ addpath(fullfile(pwd, 'RUN', 'GA'));
 Use `writeReport = false` for quick development runs. If you set it to `true`,
 the generated Markdown and result files are ignored by `.gitignore`.
 
+By default this runner uses the same arm order as the manuscript tables:
+
+```text
+Fixed Metropolis -> PD-weighted GA -> FID-FIA-weighted GA ->
+Balanced mode -> Cardinality-critical mode
+```
+
 The recommended adaptive weighting family is configured through
 `model.adaptiveFusion`, with the main factors:
 
@@ -122,16 +129,14 @@ The detailed switch definitions and expected behavior are documented in
 
 ```text
 RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m
-    Main GA-LMB tiered-link adaptive KLA ablation.
+    Main GA-LMB tiered-link comparison and ablation.
 
 RUN/GA/runMultisensorFilters_formation_4plus4_IdealCommCompare.m
-    Ideal-communication comparison for adaptive and fixed fusion modes.
+    Ideal-communication comparison using the same five paper-table arms.
 
 RUN/GA/runMultisensorFilters_formation_4plus4_CommLevelThreeMethodCompare.m
-    Communication-level comparison across multiple methods.
-
-RUN/GA/runMultisensorFilters_formation_4plus4_NISCompare.m
-    NIS-related diagnostic comparison.
+    Communication-level comparison for Fixed Metropolis, Balanced mode,
+    and Cardinality-critical mode.
 
 RUN/AA/runAaBalancedCardinalityValidation.m
     AA-LMB validation for Balanced and Cardinality-critical adaptive modes.
@@ -140,6 +145,7 @@ RUN/IDEAL/runStandardFixedIdealDistributedCompare.m
     Standard fixed ideal distributed comparison.
 ```
 
+`RUN/GA` is intentionally limited to the GA experiments used in the paper body.
 Most experiment scripts accept a trial count, seed, fixed-seed flag, override
 structures, and a report-output flag. Check the function header of each script
 for the exact signature.
@@ -208,7 +214,6 @@ test_aa_lmb_track_merging;
 test_ideal_comm_compare;
 test_standard_ideal_distributed_compare;
 test_standard_ideal_fixed_compare;
-test_state_dependent_quality_false_targets_compare;
 ```
 
 Some checks run short simulations and may generate ignored output files.

@@ -179,9 +179,9 @@ model.adaptiveFusion.structureReliabilityPower = 0.30;
 model.adaptiveFusion.structureReliabilityMinScore = 0.25;
 ```
 
-主报告：
-
-- `RUN/GA/GA_TIERED_LINK_ABLATION_20260326_182435.md`
+clean 版本不保留生成报告；需要复现时从
+`RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m`
+重新生成。
 
 对应的 main-line headline numbers：
 
@@ -207,9 +207,8 @@ model.adaptiveFusion.useDecoupledKla = false;
 model.adaptiveFusion.useStructureAwareKla = false;
 ```
 
-对应报告：
-
-- `RUN/GA/GA_TIERED_LINK_ABLATION_20260322_001613.md`
+clean 版本不保留对应的历史报告；需要检查该配置时从当前 GA ablation
+入口重新运行。
 
 ## 4. 次线模块与附录候选
 
@@ -244,10 +243,7 @@ Card: 0.214 -> 0.209 -> 0.234
 - `robust NIS` 明显好于 plain `NIS`
 - 但它相对 `w/o NIS` 的增益很弱，不足以压过当前四项主线
 
-参考：
-
-- `docs/NIS_IMPLEMENTATION_AND_ANALYSIS_CN.md`
-- `RUN/GA/GA_NIS_COMPARE_20260309_164119.md`
+clean 版本不保留 NIS 对应的历史报告或单独 GA 入口。
 
 ### 4.2 `historyScore`
 
@@ -279,9 +275,7 @@ Card: 0.214 -> 0.215
 - history 只带来很弱的局部变化
 - 不适合放在正文主线，最多可在附录里说明“尝试过，但收益有限且耦合较强”
 
-参考：
-
-- `RUN/GA/GA_HISTORY_COMPARE_20260309_113545.md`
+clean 版本不保留 history 对应的历史报告或单独 GA 入口。
 
 ## 5. 回滚方式
 

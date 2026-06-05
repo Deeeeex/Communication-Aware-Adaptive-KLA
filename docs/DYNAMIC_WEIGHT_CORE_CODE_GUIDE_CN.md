@@ -313,11 +313,11 @@ localModels{s}.gaExistenceStructurePrior = existenceStructurePrior;
 
 | 文件 | 角色 |
 | --- | --- |
-| `RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m` | 最重要的动态权重消融入口。这里构造 fixed、covariance、link quality、existence confidence、Balanced、Cardinality-critical、PD/FI/FID-FIA 等 arms。 |
+| `RUN/GA/runMultisensorFilters_formation_4plus4_TieredLinkAblation.m` | 最重要的动态权重消融入口。默认构造论文主表顺序：Fixed Metropolis、PD-weighted GA、FID-FIA-weighted GA、Balanced mode、Cardinality-critical mode。 |
 | `RUN/GA/runMultisensorFilters_formation_4plus4_CommLevelThreeMethodCompare.m` | 通信等级对照入口，比较 Fixed Metropolis、Balanced mode、Cardinality-critical mode。 |
-| `RUN/GA/runMultisensorFilters_formation_4plus4_IdealCommCompare.m` | ideal communication 支撑实验入口，用于确认动态权重不是只在丢包时有效。 |
-| `RUN/GA/runMultisensorFilters_formation_4plus4_StateDependentQualityFalseTargetsCompare.m` | state-dependent quality / false-target 支撑实验入口。 |
-| `RUN/GA/runMultisensorFilters_formation_4plus4_NISCompare.m`、`HistoryCompare.m`、`TieredLinkFreshnessCompare.m` | 历史次线模块对照入口；当前主线代码已经不再从 `computeAdaptiveFusionWeights.m` 启用这些分数。 |
+| `RUN/GA/runMultisensorFilters_formation_4plus4_IdealCommCompare.m` | ideal communication 支撑实验入口，复用同一组 5 个 paper-facing arms。 |
+
+clean 版本不再保留 NIS、history、freshness、association ambiguity、posterior-structure consistency、多速率 FI 等未进入正文的 GA 脚本。
 
 ## 如果要改代码，应该改哪里
 
