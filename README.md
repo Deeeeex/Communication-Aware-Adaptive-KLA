@@ -207,16 +207,15 @@ Structure-aware adaptive weight regression:
 test_structure_aware_consistency;
 ```
 
-Other smoke checks:
+Other lightweight smoke checks:
 
 ```matlab
 test_aa_lmb_track_merging;
 test_ideal_comm_compare;
-test_standard_ideal_distributed_compare;
-test_standard_ideal_fixed_compare;
 ```
 
-Some checks run short simulations and may generate ignored output files.
+The repository intentionally keeps only root-level checks that exercise the
+current adaptive-weighting and paper-facing GA/AA code paths.
 
 ## Notes For Development
 
